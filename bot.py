@@ -393,16 +393,8 @@ def handle_list_blocked(message):
 def build_main_menu():
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        types.InlineKeyboardButton("🔴 নেট জ্যাম", callback_data="menu_net_jam"),
-        types.InlineKeyboardButton("🟢 নেট আনজ্যাম", callback_data="menu_net_unjam"),
-    )
-    markup.add(
-        types.InlineKeyboardButton("📊 স্ট্যাটাস", callback_data="menu_status"),
-        types.InlineKeyboardButton("🔍 ক্রেডেনশিয়াল", callback_data="menu_credential"),
-    )
-    markup.add(
-        types.InlineKeyboardButton("👤 ইউজার জ্যাম", callback_data="menu_user_jam"),
-        types.InlineKeyboardButton("🔑 পাসওয়ার্ড", callback_data="menu_password"),
+        types.InlineKeyboardButton("📶 লাইভ স্পিড", callback_data="menu_live_speed"),
+        types.InlineKeyboardButton("🚫 MAC ব্লক", callback_data="menu_mac_block"),
     )
     return markup
 
@@ -413,91 +405,50 @@ def handle_menu(message):
     bot.send_message(message.chat.id, "🖥 মাইক্রোটিক বট মেনু:", reply_markup=build_main_menu())
 
 
-def build_user_info_card(user_id, ip, uptime, download, upload, is_active=True):
-    status_icon = "🟢" if is_active else "🔴"
-    status_text = "সচল" if is_active else "বন্ধ"
-    return (
-        f"👤 ইউজার      : {user_id}\n"
-        f"🌐 IP         : {ip}\n"
-        f"🕐 আপটাইম     : {uptime}\n"
-        f"📥 Download   : {download}\n"
-        f"📤 Upload     : {upload}\n"
-        f"📶 অবস্থা      : {status_icon} {status_text}\n"
-    )
-
-
-@bot.message_handler(commands=['user_info'])
-@admin_only
-def handle_user_info(message):
-    parts = message.text.split()
-    if len(parts) != 2:
-        bot.send_message(message.chat.id, "Usage: /user_info <user_id>")
-        return
-    user_id = parts[1]
-    # TODO: এখানে আসল ডেটা Mikrotik /ppp/active থেকে টেনে বসাও
-    info_text = build_user_info_card(user_id=user_id, ip="10.190.5.165", uptime="34m10s",
-                                      download="2.4 GB", upload="80.5 MB", is_active=True)
-    bot.send_message(message.chat.id, info_text, reply_markup=build_main_menu())
-
-
 @bot.callback_query_handler(func=lambda call: call.data.startswith('menu_'))
 @admin_only
 def handle_menu_callback(call):
     action = call.data
 
-    if action == "menu_net_jam":
-        bot.send_message(call.message.chat.id, "🔴 কতক্ষণ জ্যাম করবেন? (যেমন: 30s, 10m, 1h)")
-        bot.register_next_step_handler(call.message, handle_net_jam_duration)
+    if action == "menu_live_speed":
+        bot.send_message(call.message.chat.id, "📶 কোন ইউজারের লাইভ স্পিড দেখবেন? PPP ইউজারনেম দাও:")
+        bot.register_next_step_handler(call.message, handle_live_speed_target)
 
-    elif action == "menu_net_unjam":
-        # TODO: আসল নেট আনজ্যাম করার Mikrotik action বসাও
-        bot.send_message(call.message.chat.id, "🟢 নেটওয়ার্ক আনজ্যাম করা হয়েছে।", reply_markup=build_main_menu())
-
-    elif action == "menu_status":
-        bot.send_message(call.message.chat.id, "📊 নেটওয়ার্ক: ✅ সচল", reply_markup=build_main_menu())
-
-    elif action == "menu_credential":
-        bot.send_message(call.message.chat.id, "🔍 ইউজার আইডি দাও:\n/user_info <user_id>")
-
-    elif action == "menu_user_jam":
-        bot.send_message(call.message.chat.id, "👤 কোন ইউজারকে জ্যাম করবেন? ইউজার আইডি দাও:")
-        bot.register_next_step_handler(call.message, handle_user_jam_target)
-
-    elif action == "menu_password":
-        bot.send_message(call.message.chat.id, "🔑 কোন ইউজারের পাসওয়ার্ড পরিবর্তন করবেন? ইউজার আইডি দাও:")
-        bot.register_next_step_handler(call.message, handle_password_target)
+    elif action == "menu_mac_block":
+        router_list = "\n".join([f"• {name}" for name in ROUTERS.keys()])
+        bot.send_message(call.message.chat.id, f"🚫 কোন রাউটারে ব্লক করবেন? নাম দাও:\n\n{router_list}")
+        bot.register_next_step_handler(call.message, handle_mac_block_router)
 
     bot.answer_callback_query(call.id)
 
 
-def handle_net_jam_duration(message):
-    duration_text = message.text
-    # TODO: আসল জ্যাম লজিক এখানে কল করো
-    bot.send_message(message.chat.id, f"🔴 {duration_text} সময়ের জন্য নেট জ্যাম শুরু হলো।", reply_markup=build_main_menu())
+def handle_live_speed_target(message):
+    ppp_username = message.text.strip()
+    sent = bot.send_message(message.chat.id, f"⏳ {ppp_username} এর live speed লোড হচ্ছে...")
+    monitor_key = f"{message.chat.id}_{sent.message_id}"
+    active_monitors[monitor_key] = True
+
+    thread = threading.Thread(
+        target=live_speed_loop,
+        args=(message.chat.id, sent.message_id, ppp_username, DEFAULT_ROUTER, monitor_key)
+    )
+    thread.daemon = True
+    thread.start()
 
 
-def handle_user_jam_target(message):
-    user_id = message.text
-    bot.send_message(message.chat.id, f"👤 {user_id} — কতক্ষণ জ্যাম করবেন? (যেমন: 30s, 10m, 1h)")
-    bot.register_next_step_handler(message, lambda m: finish_user_jam(m, user_id))
+def handle_mac_block_router(message):
+    router_name = message.text.strip()
+    if router_name not in ROUTERS:
+        bot.send_message(message.chat.id, "❌ এই নামে কোনো রাউটার নেই। আবার /menu থেকে চেষ্টা করো।", reply_markup=build_main_menu())
+        return
+    bot.send_message(message.chat.id, "🚫 কোন MAC ব্লক করবেন? (যেমন AA:BB:CC:DD:EE:FF)")
+    bot.register_next_step_handler(message, lambda m: finish_mac_block(m, router_name))
 
 
-def finish_user_jam(message, user_id):
-    duration_text = message.text
-    # TODO: নির্দিষ্ট ইউজারকে জ্যাম করার আসল Mikrotik action
-    bot.send_message(message.chat.id, f"👤 {user_id} — {duration_text} এর জন্য জ্যাম করা হলো।", reply_markup=build_main_menu())
-
-
-def handle_password_target(message):
-    user_id = message.text
-    bot.send_message(message.chat.id, f"🔑 {user_id} — নতুন পাসওয়ার্ড দাও:")
-    bot.register_next_step_handler(message, lambda m: finish_password_change(m, user_id))
-
-
-def finish_password_change(message, user_id):
-    new_password = message.text
-    # TODO: web server / Mikrotik PPP secret এ POST করে পাসওয়ার্ড আপডেট করো
-    bot.send_message(message.chat.id, f"✅ {user_id} এর পাসওয়ার্ড পরিবর্তন করা হয়েছে।", reply_markup=build_main_menu())
+def finish_mac_block(message, router_name):
+    mac_address = message.text.strip().upper()
+    success, msg = block_mac(router_name, mac_address)
+    bot.send_message(message.chat.id, ("✅ " if success else "❌ ") + msg, reply_markup=build_main_menu())
 
 
 # ================== বট চালু করা ==================
