@@ -4,7 +4,7 @@ MIKROTIK TELEGRAM BOT — FINAL VERSION (WEB APP LOGIN + .env CONFIG)
 ফিচার:
   0. Facebook-স্টাইল গ্রাফিক্যাল লগইন (Telegram Web App, username+password) — সেশন ৩০ মিনিট
   1. Live PPPoE speed monitoring (/speed, /stop_speed)
-  2. Multi-router MAC address block/unblock (/block_mac, /unblock_mac, /list_blocked, /list_routers)
+  2. MAC address block/unblock (/block_mac, /unblock_mac, /list_blocked)
   3. Inline button menu (/menu, /user_info)
 
 Requirements:
@@ -58,7 +58,6 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 WEBAPP_URL = os.getenv('WEBAPP_URL')
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME')
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
-DEFAULT_ROUTER = os.getenv('DEFAULT_ROUTER', 'router1')
 
 if not BOT_TOKEN or not WEBAPP_URL or not ADMIN_USERNAME or not ADMIN_PASSWORD:
     raise RuntimeError("BOT_TOKEN / WEBAPP_URL / ADMIN_USERNAME / ADMIN_PASSWORD .env এ পাওয়া যায়নি। .env.example দেখো।")
@@ -66,16 +65,13 @@ if not BOT_TOKEN or not WEBAPP_URL or not ADMIN_USERNAME or not ADMIN_PASSWORD:
 bot = telebot.TeleBot(BOT_TOKEN)
 
 ROUTERS = {}
-for i in range(1, 7):
-    prefix = f'ROUTER{i}_'
-    host = os.getenv(prefix + 'HOST')
-    if not host:
-        continue
-    ROUTERS[f'router{i}'] = {
+host = os.getenv('ROUTER_HOST')
+if host:
+    ROUTERS['router1'] = {
         'host': host,
-        'user': os.getenv(prefix + 'USER'),
-        'password': os.getenv(prefix + 'PASS'),
-        'port': int(os.getenv(prefix + 'PORT', 8728)),
+        'user': os.getenv('ROUTER_USER'),
+        'password': os.getenv('ROUTER_PASS'),
+        'port': int(os.getenv('ROUTER_PORT', 8728)),
     }
 
 RULE_COMMENT_TAG = "bot-mac-block"
@@ -229,12 +225,12 @@ def get_ppp_user_traffic(router_name, ppp_username):
 @admin_only
 def handle_speed_command(message):
     parts = message.text.split()
-    if len(parts) not in (2, 3):
-        bot.send_message(message.chat.id, "Usage: /speed <ppp_username> [router_name]")
+    if len(parts) != 2:
+        bot.send_message(message.chat.id, "Usage: /speed <ppp_username>")
         return
 
     ppp_username = parts[1]
-    router_name = parts[2] if len(parts) == 3 else DEFAULT_ROUTER
+    router_name = 'router1'
 
     sent = bot.send_message(message.chat.id, f"⏳ {ppp_username} এর live speed লোড হচ্ছে...")
     monitor_key = f"{message.chat.id}_{sent.message_id}"
@@ -291,6 +287,26 @@ def handle_stop_speed(message):
 
 # ================== ফিচার ২: MAC Block/Unblock ==================
 
+def find_user_mac(ppp_username):
+    """সব রাউটার খুঁজে দেখে ইউজার কোথায় active আছে, তার MAC (caller-id) বের করে আনে"""
+    for router_name in ROUTERS:
+        api, connection = get_router_connection(router_name)
+        if api is None:
+            continue
+        try:
+            active_list = api.get_resource('/ppp/active')
+            active_users = active_list.get(name=ppp_username)
+            if active_users:
+                mac_address = active_users[0].get('caller-id')
+                if mac_address:
+                    return router_name, mac_address.upper()
+        except Exception:
+            pass
+        finally:
+            connection.disconnect()
+    return None, None
+
+
 def block_mac(router_name, mac_address):
     api, connection = get_router_connection(router_name)
     if api is None:
@@ -340,22 +356,15 @@ def list_blocked_macs(router_name):
         connection.disconnect()
 
 
-@bot.message_handler(commands=['list_routers'])
-@admin_only
-def handle_list_routers(message):
-    router_list = "\n".join([f"• {name} ({cfg['host']})" for name, cfg in ROUTERS.items()])
-    bot.send_message(message.chat.id, f"রাউটার লিস্ট:\n{router_list}")
-
-
 @bot.message_handler(commands=['block_mac'])
 @admin_only
 def handle_block_mac(message):
     parts = message.text.split()
-    if len(parts) != 3:
-        bot.send_message(message.chat.id, "Usage: /block_mac <router_name> <mac_address>")
+    if len(parts) != 2:
+        bot.send_message(message.chat.id, "Usage: /block_mac <mac_address>")
         return
-    router_name, mac_address = parts[1], parts[2].upper()
-    success, msg = block_mac(router_name, mac_address)
+    mac_address = parts[1].upper()
+    success, msg = block_mac('router1', mac_address)
     bot.send_message(message.chat.id, ("✅ " if success else "❌ ") + msg)
 
 
@@ -363,29 +372,24 @@ def handle_block_mac(message):
 @admin_only
 def handle_unblock_mac(message):
     parts = message.text.split()
-    if len(parts) != 3:
-        bot.send_message(message.chat.id, "Usage: /unblock_mac <router_name> <mac_address>")
+    if len(parts) != 2:
+        bot.send_message(message.chat.id, "Usage: /unblock_mac <mac_address>")
         return
-    router_name, mac_address = parts[1], parts[2].upper()
-    success, msg = unblock_mac(router_name, mac_address)
+    mac_address = parts[1].upper()
+    success, msg = unblock_mac('router1', mac_address)
     bot.send_message(message.chat.id, ("✅ " if success else "❌ ") + msg)
 
 
 @bot.message_handler(commands=['list_blocked'])
 @admin_only
 def handle_list_blocked(message):
-    parts = message.text.split()
-    if len(parts) != 2:
-        bot.send_message(message.chat.id, "Usage: /list_blocked <router_name>")
-        return
-    router_name = parts[1]
-    blocked = list_blocked_macs(router_name)
+    blocked = list_blocked_macs('router1')
     if blocked is None:
-        bot.send_message(message.chat.id, "রাউটার খুঁজে পাওয়া যায়নি।")
+        bot.send_message(message.chat.id, "রাউটারে কানেক্ট করা যায়নি।")
     elif not blocked:
-        bot.send_message(message.chat.id, f"{router_name}-এ কোনো MAC ব্লক করা নেই।")
+        bot.send_message(message.chat.id, "কোনো MAC ব্লক করা নেই।")
     else:
-        bot.send_message(message.chat.id, f"ব্লক করা MAC ({router_name}):\n" + "\n".join(blocked))
+        bot.send_message(message.chat.id, "ব্লক করা MAC:\n" + "\n".join(blocked))
 
 
 # ================== ফিচার ৩: Inline Menu ==================
@@ -394,7 +398,7 @@ def build_main_menu():
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("📶 লাইভ স্পিড", callback_data="menu_live_speed"),
-        types.InlineKeyboardButton("🚫 MAC ব্লক", callback_data="menu_mac_block"),
+        types.InlineKeyboardButton("🚫 ইউজার ব্লক", callback_data="menu_mac_block"),
     )
     return markup
 
@@ -415,9 +419,8 @@ def handle_menu_callback(call):
         bot.register_next_step_handler(call.message, handle_live_speed_target)
 
     elif action == "menu_mac_block":
-        router_list = "\n".join([f"• {name}" for name in ROUTERS.keys()])
-        bot.send_message(call.message.chat.id, f"🚫 কোন রাউটারে ব্লক করবেন? নাম দাও:\n\n{router_list}")
-        bot.register_next_step_handler(call.message, handle_mac_block_router)
+        bot.send_message(call.message.chat.id, "🚫 কোন ইউজারকে ব্লক করবেন? ইউজার আইডি দাও:")
+        bot.register_next_step_handler(call.message, handle_block_by_userid)
 
     bot.answer_callback_query(call.id)
 
@@ -436,19 +439,29 @@ def handle_live_speed_target(message):
     thread.start()
 
 
-def handle_mac_block_router(message):
-    router_name = message.text.strip()
-    if router_name not in ROUTERS:
-        bot.send_message(message.chat.id, "❌ এই নামে কোনো রাউটার নেই। আবার /menu থেকে চেষ্টা করো।", reply_markup=build_main_menu())
+def handle_block_by_userid(message):
+    ppp_username = message.text.strip()
+    bot.send_message(message.chat.id, f"🔎 {ppp_username} কে খোঁজা হচ্ছে (সব রাউটারে)...")
+
+    router_name, mac_address = find_user_mac(ppp_username)
+
+    if not mac_address:
+        bot.send_message(
+            message.chat.id,
+            f"❌ {ppp_username} কোনো রাউটারে এখন অনলাইন পাওয়া যায়নি। ইউজার অফলাইন থাকলে MAC পাওয়া সম্ভব না।",
+            reply_markup=build_main_menu()
+        )
         return
-    bot.send_message(message.chat.id, "🚫 কোন MAC ব্লক করবেন? (যেমন AA:BB:CC:DD:EE:FF)")
-    bot.register_next_step_handler(message, lambda m: finish_mac_block(m, router_name))
 
-
-def finish_mac_block(message, router_name):
-    mac_address = message.text.strip().upper()
     success, msg = block_mac(router_name, mac_address)
-    bot.send_message(message.chat.id, ("✅ " if success else "❌ ") + msg, reply_markup=build_main_menu())
+    if success:
+        bot.send_message(
+            message.chat.id,
+            f"✅ {ppp_username} কে ব্লক করা হয়েছে।\nরাউটার: {router_name}\nMAC: {mac_address}",
+            reply_markup=build_main_menu()
+        )
+    else:
+        bot.send_message(message.chat.id, f"❌ {msg}", reply_markup=build_main_menu())
 
 
 # ================== বট চালু করা ==================
