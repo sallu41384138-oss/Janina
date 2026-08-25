@@ -126,8 +126,10 @@ def admin_only(func):
 
 
 def build_login_button():
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🔐 লগইন করো", web_app=types.WebAppInfo(WEBAPP_URL)))
+    # গুরুত্বপূর্ণ: sendData() শুধু Keyboard Button (ReplyKeyboardMarkup) দিয়ে
+    # খোলা Web App এ কাজ করে, InlineKeyboardButton দিয়ে খুললে কাজ করে না।
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add(types.KeyboardButton("🔐 লগইন করো", web_app=types.WebAppInfo(WEBAPP_URL)))
     return markup
 
 
