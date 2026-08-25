@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>লগইন</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --fb-blue: #1877F2;
+    --fb-blue-dark: #166FE5;
+    --fb-green: #42B72A;
+    --fb-green-dark: #36A420;
+    --text-dark: #1c1e21;
+    --text-gray: #606770;
+    --border: #dddfe2;
+    --bg: #f0f2f5;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 396px;
+  }
+
+  .brand {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+
+  .brand-icon {
+    width: 56px;
+    height: 56px;
+    background: var(--fb-blue);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 12px;
+    font-size: 28px;
+  }
+
+  .brand h1 {
+    color: var(--fb-blue);
+    font-size: 26px;
+    font-weight: 700;
+  }
+
+  .brand p {
+    color: var(--text-gray);
+    font-size: 14px;
+    margin-top: 4px;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1), 0 8px 16px rgba(0,0,0,0.1);
+    padding: 20px;
+  }
+
+  .field {
+    margin-bottom: 12px;
+  }
+
+  input[type="text"],
+  input[type="password"] {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 17px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  input[type="text"]:focus,
+  input[type="password"]:focus {
+    border-color: var(--fb-blue);
+    box-shadow: 0 0 0 2px rgba(24,119,242,0.15);
+  }
+
+  .login-btn {
+    width: 100%;
+    background: var(--fb-blue);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 14px;
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: background 0.15s;
+  }
+
+  .login-btn:active {
+    background: var(--fb-blue-dark);
+  }
+
+  .login-btn:disabled {
+    background: #a9c9fb;
+    cursor: not-allowed;
+  }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+  }
+
+  .error-msg {
+    background: #fde2e1;
+    color: #d32f2f;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 14px;
+    margin-bottom: 12px;
+    display: none;
+  }
+
+  .error-msg.show { display: block; }
+
+  .footer-note {
+    text-align: center;
+    color: var(--text-gray);
+    font-size: 12px;
+    margin-top: 20px;
+    line-height: 1.5;
+  }
+
+  .lock-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    justify-content: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="brand">
+    <div class="brand-icon">🖥️</div>
+    <h1>Network Admin</h1>
+    <p>তোমার একাউন্ট দিয়ে লগইন করো</p>
+  </div>
+
+  <div class="card">
+    <div id="errorMsg" class="error-msg"></div>
+
+    <form id="loginForm">
+      <div class="field">
+        <input type="text" id="username" placeholder="ইউজারনেম" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <input type="password" id="password" placeholder="পাসওয়ার্ড" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="login-btn" id="loginBtn">লগ ইন</button>
+    </form>
+
+    <hr class="divider">
+
+    <p class="footer-note">
+      <span class="lock-badge">🔒 এই তথ্য সরাসরি Telegram এর মাধ্যমে বটে পাঠানো হয়</span>
+    </p>
+  </div>
+
+  <p class="footer-note">Mikrotik Bot Admin Panel</p>
+</div>
+
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+
+  const form = document.getElementById('loginForm');
+  const errorMsg = document.getElementById('errorMsg');
+  const loginBtn = document.getElementById('loginBtn');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+
+    if (!username || !password) {
+      showError('ইউজারনেম ও পাসওয়ার্ড দুটোই দিতে হবে।');
+      return;
+    }
+
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'লগ ইন হচ্ছে...';
+
+    // Telegram এর মাধ্যমে সরাসরি বটে ডেটা পাঠানো হচ্ছে (নিরাপদ চ্যানেল)
+    const payload = JSON.stringify({ username: username, password: password });
+    tg.sendData(payload);
+  });
+
+  function showError(text) {
+    errorMsg.textContent = text;
+    errorMsg.classList.add('show');
+  }
+</script>
+
+</body>
+</html>
