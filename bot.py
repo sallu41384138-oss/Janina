@@ -28,8 +28,27 @@ import telebot
 from telebot import types
 import routeros_api
 from dotenv import load_dotenv
+from flask import Flask
 
 logging.basicConfig(level=logging.INFO)
+
+# ================== Render এর জন্য ডামি ওয়েব সার্ভার ==================
+# Render "Web Service" টাইপে একটা খোলা পোর্ট আশা করে, নাহলে ডিপ্লয়
+# "No open ports detected" দেখিয়ে সমস্যা করে। bot polling মোডে কোনো
+# পোর্ট খোলে না, তাই এই ছোট Flask সার্ভারটা শুধু Render কে সন্তুষ্ট
+# করার জন্য একটা পোর্টে লিসেন করে, বটের কাজে কোনো ভূমিকা নেই।
+
+web_app = Flask(__name__)
+
+
+@web_app.route('/')
+def health_check():
+    return "Bot is running", 200
+
+
+def run_web_server():
+    port = int(os.getenv('PORT', 10000))
+    web_app.run(host='0.0.0.0', port=port)
 
 # ================== .env থেকে কনফিগ লোড ==================
 
@@ -483,4 +502,10 @@ def finish_password_change(message, user_id):
 
 if __name__ == '__main__':
     logging.info("বট চালু হচ্ছে...")
+
+    # ডামি ওয়েব সার্ভার আলাদা থ্রেডে চালু করা হচ্ছে, যাতে Render পোর্ট খুঁজে পায়
+    web_thread = threading.Thread(target=run_web_server)
+    web_thread.daemon = True
+    web_thread.start()
+
     bot.infinity_polling()
